@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gesture Controlled Star Field</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000000; /* Pure black for space */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        #canvas-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%); /* Subtle space gradient background */
+        }
+
+        #video-container {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 200px;
+            height: 150px;
+            border-radius: 12px;
+            overflow: hidden;
+            z-index: 10;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            background: #000;
+        }
+
+        #webcam {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror the video */
+        }
+
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            transition: opacity 0.5s ease;
+        }
+
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4488ff; /* Changed color to match space theme */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #status-pill {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(68, 136, 255, 0.2); /* Changed color */
+            border: 1px solid rgba(68, 136, 255, 0.5);
+            color: #aaccff;
+            padding: 8px 24px;
+            border-radius: 30px;
+            font-size: 14px;
+            backdrop-filter: blur(5px);
+            z-index: 5;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+
+        #controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(10px);
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            z-index: 15;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 220px; /* Slightly wider for sliders */
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .control-group label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #ccc;
+            flex: 1;
+        }
+
+        input[type="color"] {
+            -webkit-appearance: none;
+            border: none;
+            width: 30px;
+            height: 30px;
+            background: none;
+            cursor: pointer;
+            padding: 0;
+            border-radius: 50%;
+            overflow: hidden;
+        }
+        
+        input[type="color"]::-webkit-color-swatch-wrapper {
+            padding: 0;
+        }
+        
+        input[type="color"]::-webkit-color-swatch {
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+        }
+
+        /* Range Slider */
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100px; /* Specific width */
+            height: 4px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 2px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4488ff; /* Changed to blue */
+            cursor: pointer;
+        }
+
+        select {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            outline: none;
+            cursor: pointer;
+            width: 100px;
+        }
+
+        select option {
+            background: #222;
+            color: white;
+        }
+
+        .instruction-panel {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            text-align: right;
+            z-index: 5;
+            pointer-events: none;
+        }
+        
+        .key {
+            color: #4488ff;
+            font-weight: bold;
+        }
+    </style>
+    <!-- Shaders for Star Field -->
+    <script type="x-shader/x-vertex" id="star-vs">
+        attribute float size;
+        attribute float twinkleOffset;
+        varying float vTwinkleOffset;
+        uniform float uTime;
+        uniform float uSizeScale;
+
+        void main() {
+            vTwinkleOffset = twinkleOffset;
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            
+            // Size attenuation based on distance to camera
+            gl_PointSize = size * uSizeScale * (300.0 / -mvPosition.z);
+            
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    </script>
+
+    <script type="x-shader/x-fragment" id="star-fs">
+        uniform vec3 uColor;
+        uniform float uTime;
+        uniform float uGlowIntensity; // New uniform for dynamic glow control
+        varying float vTwinkleOffset;
+
+        void main() {
+            // Distance from center (0.0 to 0.5)
+            float d = distance(gl_PointCoord, vec2(0.5));
+
+            // Circular cutout
+            if(d > 0.5) discard;
+
+            // 1. Defined Core: Creates a sharp, solid star body
+            // Slightly tightened thresholds for a smaller, crisp core
+            float core = 1.0 - smoothstep(0.05, 0.12, d);
+
+            // 2. Faint Glow: Linear falloff for subtle atmosphere
+            // Controlled by uniform
+            float glow = (1.0 - (d * 2.0)) * uGlowIntensity;
+
+            // Combine: Ensure core overrides glow where they overlap
+            float finalAlpha = max(core, glow);
+
+            // Twinkle effect
+            float twinkle = sin(uTime * 3.0 + vTwinkleOffset) * 0.2 + 0.8;
+
+            gl_FragColor = vec4(uColor, finalAlpha * twinkle);
+        }
+    </script>
+</head>
+<body>
+
+    <div id="overlay">
+        <div class="loader"></div>
+        <h2 id="loading-text">Initializing AI Vision...</h2>
+        <p style="margin-top: 10px; font-size: 0.9em; color: #888;">Please allow camera access.</p>
+    </div>
+
+    <div id="status-pill">Waiting for Hand...</div>
+
+    <div id="controls">
+        <div class="control-group">
+            <label for="formationSelect">Formation</label>
+            <select id="formationSelect">
+                <option value="planet">Sphere</option>
+                <option value="heart">3D Heart</option>
+                <option value="flower">Flower</option>
+                <option value="galaxy">Galaxy</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label for="particleCount">Count</label>
+            <input type="range" id="particleCount" min="1000" max="20000" step="1000" value="8000">
+        </div>
+        <div class="control-group">
+            <label for="particleSize">Size</label>
+            <input type="range" id="particleSize" min="0.1" max="3.0" step="0.1" value="1.0">
+        </div>
+        <div class="control-group">
+            <label for="glowIntensity">Glow</label>
+            <input type="range" id="glowIntensity" min="0.0" max="0.3" step="0.01" value="0.05">
+        </div>
+        <div class="control-group">
+            <label for="planetColor">Color</label>
+            <input type="color" id="planetColor" value="#aaccff">
+        </div>
+        <div class="control-group">
+            <label for="ringColor">Rings</label>
+            <input type="color" id="ringColor" value="#ffffff">
+        </div>
+    </div>
+
+    <div id="canvas-container"></div>
+
+    <div id="video-container">
+        <video id="webcam" autoplay playsinline></video>
+    </div>
+
+    <div class="instruction-panel">
+        <p><span class="key">ROTATE HAND</span> to Orbit</p>
+        <p><span class="key">FIST</span> to Zoom Out</p>
+        <p><span class="key">OPEN HAND</span> to Zoom In</p>
+    </div>
+
+    <!-- Import Maps -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.skypack.dev/three@0.136.0",
+                "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { HandLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+
+        // --- Configuration ---
+        const CONFIG = {
+            mainColor: 0xaaccff, // Light blueish white star color
+            radius: 10,
+            particleCount: 8000, 
+            ringColor: 0xffffff,
+            ringParticles: 3000, 
+            ringInner: 16,
+            ringOuter: 24,
+            camMinDist: 5, 
+            camMaxDist: 120,
+            zoomOutAccel: 0.5, 
+            zoomInFactor: 0.1,
+            rotationSpeed: 0.04
+        };
+
+        // --- Global State ---
+        let scene, camera, renderer;
+        let starFieldPoints, ringPoints, handLandmarker; 
+        let starMaterial, ringMaterial; 
+        let webcam;
+        let lastVideoTime = -1;
+        let currentScale = 1.0; 
+        let currentFormation = 'planet';
+        let currentGlow = 0.05;
+        
+        // Camera State (Spherical Coordinates)
+        let camState = {
+            radius: 50, 
+            theta: 0, 
+            phi: Math.PI / 2, 
+            targetRadius: 50
+        };
+
+        // Gesture State
+        let gestureState = {
+            isFist: false,
+            isOpen: false,
+            rotationAngle: 0, 
+            smoothedRotation: 0, 
+            zoomScore: 0, 
+            smoothedZoom: 0, 
+            detected: false
+        };
+
+        const statusPill = document.getElementById('status-pill');
+        const overlay = document.getElementById('overlay');
+        const loadingText = document.getElementById('loading-text');
+
+        // --- Initialization ---
+
+        async function init() {
+            initThree();
+            createStarField(); 
+            createRings(); 
+            createBackgroundStars(); 
+            setupControls();
+            
+            // Set initial distribution
+            updateFormation('planet');
+
+            try {
+                await initMediaPipe();
+                loadingText.innerText = "Starting Camera...";
+                await startWebcam();
+                
+                // Hide loader
+                overlay.style.opacity = 0;
+                setTimeout(() => overlay.style.display = 'none', 500);
+                
+                animate();
+            } catch (err) {
+                loadingText.innerText = "Error: " + err.message;
+                console.error(err);
+            }
+        }
+
+        function initThree() {
+            const container = document.getElementById('canvas-container');
+            
+            scene = new THREE.Scene();
+            // Fog adjusted for deeper space feel
+            scene.fog = new THREE.FogExp2(0x000000, 0.005);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            updateCameraPosition();
+
+            // Simplified renderer setup 
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            container.appendChild(renderer.domElement);
+
+            // Minimal lighting
+            const ambientLight = new THREE.AmbientLight(0x111111, 1); 
+            scene.add(ambientLight);
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // --- Mesh Generation & Management ---
+
+        function createStarField() {
+            const particleCount = CONFIG.particleCount;
+            const geometry = new THREE.BufferGeometry();
+            
+            const positions = new Float32Array(particleCount * 3);
+            const sizes = new Float32Array(particleCount);
+            const twinkleOffsets = new Float32Array(particleCount);
+
+            for (let i = 0; i < particleCount; i++) {
+                // Initial positions will be set by updateFormation
+                positions[i * 3] = 0;
+                positions[i * 3 + 1] = 0;
+                positions[i * 3 + 2] = 0;
+
+                // REDUCED SIZE: Smaller stars for delicate appearance
+                sizes[i] = Math.random() * 1.5 + 0.3; 
+                
+                // Random offset 
+                twinkleOffsets[i] = Math.random() * Math.PI * 2;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('twinkleOffset', new THREE.BufferAttribute(twinkleOffsets, 1));
+
+            // Custom Shader Material 
+            starMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0.0 },
+                    uColor: { value: new THREE.Color(CONFIG.mainColor) },
+                    uSizeScale: { value: currentScale },
+                    uGlowIntensity: { value: currentGlow }
+                },
+                vertexShader: document.getElementById('star-vs').textContent,
+                fragmentShader: document.getElementById('star-fs').textContent,
+                transparent: true,
+                depthWrite: false, 
+                blending: THREE.AdditiveBlending 
+            });
+
+            starFieldPoints = new THREE.Points(geometry, starMaterial);
+            scene.add(starFieldPoints);
+        }
+
+        function createRings() {
+            const particleCount = CONFIG.ringParticles;
+            const geometry = new THREE.BufferGeometry();
+            
+            const positions = new Float32Array(particleCount * 3);
+            const sizes = new Float32Array(particleCount);
+            const twinkleOffsets = new Float32Array(particleCount);
+
+            const inner = CONFIG.ringInner;
+            const outer = CONFIG.ringOuter;
+
+            for (let i = 0; i < particleCount; i++) {
+                const distance = inner + Math.random() * (outer - inner);
+                const angle = Math.random() * Math.PI * 2;
+                
+                // Wavy ring effect logic, directly into buffer
+                const height = (Math.random() - 0.5) * 0.5;
+                const x = Math.cos(angle) * distance;
+                const z = Math.sin(angle) * distance;
+                const y = height + (Math.sin(distance * 0.5) * 2);
+
+                positions[i * 3] = x;
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = z;
+
+                // REDUCED SIZE: Even finer particles for rings
+                sizes[i] = Math.random() * 1.0 + 0.3; 
+                twinkleOffsets[i] = Math.random() * Math.PI * 2;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('twinkleOffset', new THREE.BufferAttribute(twinkleOffsets, 1));
+
+            // Separate material for rings to allow independent coloring
+            ringMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    uTime: { value: 0.0 },
+                    uColor: { value: new THREE.Color(CONFIG.ringColor) },
+                    uSizeScale: { value: currentScale },
+                    uGlowIntensity: { value: currentGlow }
+                },
+                vertexShader: document.getElementById('star-vs').textContent,
+                fragmentShader: document.getElementById('star-fs').textContent,
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+
+            ringPoints = new THREE.Points(geometry, ringMaterial);
+            scene.add(ringPoints);
+        }
+
+        // --- Formation Logic ---
+
+        function updateFormation(type) {
+            currentFormation = type;
+            const count = CONFIG.particleCount;
+            
+            // Visibility of rings
+            if (ringPoints) {
+                // Only show rings for Planet mode
+                ringPoints.visible = (type === 'planet');
+            }
+
+            // Get direct access to the position attribute array
+            const positions = starFieldPoints.geometry.attributes.position.array;
+            
+            // Safety check in case we increased count but haven't regenerated buffer
+            if (positions.length < count * 3) {
+                return; // Wait for regeneration
+            }
+
+            for (let i = 0; i < count; i++) {
+                let x, y, z;
+                const i3 = i * 3;
+
+                if (type === 'planet') {
+                    // Spherical distribution
+                    const r = CONFIG.radius + (Math.random() - 0.5) * 3.0; 
+                    const theta = Math.random() * Math.PI * 2;
+                    const phi = Math.acos(2 * Math.random() - 1);
+                    x = r * Math.sin(phi) * Math.cos(theta);
+                    y = r * Math.sin(phi) * Math.sin(theta);
+                    z = r * Math.cos(phi);
+                } 
+                else if (type === 'heart') {
+                    // Heart logic
+                    let found = false;
+                    let attempts = 0;
+                    while (!found && attempts < 100) {
+                        attempts++;
+                        let rx = (Math.random() - 0.5) * 4;
+                        let ry = (Math.random() - 0.5) * 4;
+                        let rz = (Math.random() - 0.5) * 4;
+                        let xx = rx; let yy = rz; let zz = ry; 
+                        const a = xx*xx + (9/4)*yy*yy + zz*zz - 1;
+                        const res = a*a*a - xx*xx*zz*zz*zz - (9/80)*yy*yy*zz*zz*zz;
+                        if (res < 0) {
+                            x = rx * 8; y = ry * 8; z = rz * 8;
+                            found = true;
+                        }
+                    }
+                    if(!found) { x=0; y=0; z=0; } // Fallback
+                }
+                else if (type === 'flower') {
+                    // Flower logic
+                    const k = 4; 
+                    const theta = Math.random() * Math.PI * 2;
+                    const rBase = Math.cos(k * theta); 
+                    const phi = (Math.random() - 0.5) * Math.PI; 
+                    const r = (5 + Math.abs(rBase) * 8) * (1 - Math.abs(phi)/Math.PI);
+                    x = r * Math.cos(theta);
+                    z = r * Math.sin(theta);
+                    y = phi * 8 + Math.pow(r/8, 2) * 2; 
+                }
+                else if (type === 'galaxy') {
+                    // Galaxy logic
+                    const arms = 3;
+                    const armIndex = i % arms;
+                    const r = Math.random() * 25; 
+                    const spin = 3.0; 
+                    const angle = (r / 25) * (Math.PI * 2 * spin) + (armIndex / arms) * Math.PI * 2;
+                    const fuzz = Math.random() * 3;
+                    x = (r * Math.cos(angle)) + (Math.random()-0.5) * fuzz;
+                    z = (r * Math.sin(angle)) + (Math.random()-0.5) * fuzz;
+                    y = (Math.random() - 0.5) * (25 - r) * 0.3; 
+                }
+
+                // Update point positions directly
+                positions[i3] = x;
+                positions[i3 + 1] = y;
+                positions[i3 + 2] = z;
+            }
+            
+            // Flag geometry attribute for update
+            starFieldPoints.geometry.attributes.position.needsUpdate = true;
+        }
+
+        function regenerateParticles() {
+            if (starFieldPoints) {
+                scene.remove(starFieldPoints);
+                starFieldPoints.geometry.dispose();
+            }
+            createStarField();
+            updateFormation(currentFormation);
+        }
+
+        function updateParticleSize(newScale) {
+            currentScale = parseFloat(newScale);
+            if (starMaterial) starMaterial.uniforms.uSizeScale.value = currentScale;
+            if (ringMaterial) ringMaterial.uniforms.uSizeScale.value = currentScale;
+        }
+
+        function updateGlowIntensity(newIntensity) {
+            currentGlow = parseFloat(newIntensity);
+            if (starMaterial) starMaterial.uniforms.uGlowIntensity.value = currentGlow;
+            if (ringMaterial) ringMaterial.uniforms.uGlowIntensity.value = currentGlow;
+        }
+        
+        function createBackgroundStars() {
+            const geometry = new THREE.BufferGeometry();
+            const vertices = [];
+            
+            for(let i=0; i<3000; i++) {
+                const x = (Math.random() - 0.5) * 600;
+                const y = (Math.random() - 0.5) * 600;
+                const z = (Math.random() - 0.5) * 600;
+                vertices.push(x, y, z);
+            }
+            
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            const material = new THREE.PointsMaterial({
+                color: 0x888888, 
+                size: 1.0, 
+                sizeAttenuation: false, 
+                transparent: true, 
+                opacity: 0.4,
+                fog: false 
+            });
+            const stars = new THREE.Points(geometry, material);
+            scene.add(stars);
+        }
+
+        function setupControls() {
+            const formationSelect = document.getElementById('formationSelect');
+            const countSlider = document.getElementById('particleCount');
+            const sizeSlider = document.getElementById('particleSize');
+            const glowSlider = document.getElementById('glowIntensity');
+            const planetPicker = document.getElementById('planetColor');
+            const ringPicker = document.getElementById('ringColor');
+
+            formationSelect.addEventListener('change', (e) => {
+                updateFormation(e.target.value);
+            });
+
+            // Using 'change' event for count to avoid lagging while dragging
+            countSlider.addEventListener('change', (e) => {
+                CONFIG.particleCount = parseInt(e.target.value);
+                regenerateParticles();
+            });
+
+            sizeSlider.addEventListener('input', (e) => {
+                updateParticleSize(e.target.value);
+            });
+
+            glowSlider.addEventListener('input', (e) => {
+                updateGlowIntensity(e.target.value);
+            });
+
+            planetPicker.addEventListener('input', (e) => {
+                if (starMaterial) {
+                    starMaterial.uniforms.uColor.value.set(e.target.value);
+                }
+            });
+
+            ringPicker.addEventListener('input', (e) => {
+                if (ringMaterial) {
+                    ringMaterial.uniforms.uColor.value.set(e.target.value);
+                }
+            });
+        }
+
+        // --- MediaPipe Logic (Enhanced) ---
+
+        async function initMediaPipe() {
+            const vision = await FilesetResolver.forVisionTasks(
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+            );
+            
+            handLandmarker = await HandLandmarker.createFromOptions(vision, {
+                baseOptions: {
+                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
+                    delegate: "GPU"
+                },
+                runningMode: "VIDEO",
+                numHands: 1
+            });
+        }
+
+        async function startWebcam() {
+            webcam = document.getElementById("webcam");
+            const constraints = { video: true };
+            
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            webcam.srcObject = stream;
+            
+            return new Promise((resolve) => {
+                webcam.addEventListener("loadeddata", resolve);
+            });
+        }
+
+        function detectGestures(landmarks) {
+            if (!landmarks || landmarks.length === 0) return;
+
+            const hand = landmarks[0]; 
+            const wrist = hand[0];
+            const middleMCP = hand[9];
+
+            const handSize = Math.hypot(middleMCP.x - wrist.x, middleMCP.y - wrist.y);
+
+            const dx = middleMCP.x - wrist.x;
+            const dy = middleMCP.y - wrist.y;
+            let angle = Math.atan2(dx, -dy);
+            gestureState.rotationAngle = angle; 
+
+            const tips = [8, 12, 16, 20]; 
+            let totalRatio = 0;
+            
+            tips.forEach(idx => {
+                const tip = hand[idx];
+                const dist = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+                totalRatio += (dist / handSize);
+            });
+            const avgRatio = totalRatio / 4;
+
+            let score = (avgRatio - 1.3) / 0.6; 
+            gestureState.zoomScore = Math.max(-1, Math.min(1, score));
+        }
+
+        // --- Main Loop ---
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const time = performance.now() * 0.001;
+
+            // Update shader time for twinkling
+            if (starMaterial) starMaterial.uniforms.uTime.value = time;
+            if (ringMaterial) ringMaterial.uniforms.uTime.value = time;
+
+            // 1. MediaPipe Detection
+            if (webcam && webcam.currentTime !== lastVideoTime) {
+                lastVideoTime = webcam.currentTime;
+                const result = handLandmarker.detectForVideo(webcam, performance.now());
+                
+                if (result.landmarks && result.landmarks.length > 0) {
+                    gestureState.detected = true;
+                    detectGestures(result.landmarks);
+                } else {
+                    gestureState.detected = false;
+                }
+            }
+
+            // 2. Logic Update
+            updateCameraDynamics();
+            animateParticles();
+
+            // 3. Render
+            renderer.render(scene, camera);
+        }
+        
+        let zoomVelocity = 0;
+
+        function updateCameraDynamics() {
+            if (!gestureState.detected) {
+                statusPill.innerText = "No Hand Detected";
+                statusPill.style.borderColor = "rgba(68, 136, 255, 0.5)";
+                statusPill.style.color = "#aaccff";
+                
+                // Slow drift when idle
+                camState.theta += 0.0005;
+                updateCameraPosition();
+                return;
+            }
+
+            // --- SMOOTHING INPUTS ---
+            const alpha = 0.15; 
+            gestureState.smoothedRotation += (gestureState.rotationAngle - gestureState.smoothedRotation) * alpha;
+            gestureState.smoothedZoom += (gestureState.zoomScore - gestureState.smoothedZoom) * alpha;
+
+            // --- ROTATION CONTROL ---
+            const rotDeadzone = 0.15; 
+            let rotInput = 0;
+            
+            if (Math.abs(gestureState.smoothedRotation) > rotDeadzone) {
+                rotInput = (gestureState.smoothedRotation - (Math.sign(gestureState.smoothedRotation) * rotDeadzone)) * CONFIG.rotationSpeed;
+            }
+            camState.theta -= rotInput;
+
+            // --- ZOOM CONTROL ---
+            const zoomDeadzone = 0.3;
+            let statusMsg = "Hand Active";
+            let statusColor = "#ffffff";
+            let targetVelocity = 0;
+
+            if (gestureState.smoothedZoom < -zoomDeadzone) {
+                // FIST -> Zoom OUT
+                const mag = (Math.abs(gestureState.smoothedZoom) - zoomDeadzone) / (1 - zoomDeadzone);
+                zoomVelocity += mag * CONFIG.zoomOutAccel;
+                statusMsg = "ZOOM OUT (Fist)";
+                statusColor = "#ff4444";
+            } 
+            else if (gestureState.smoothedZoom > zoomDeadzone) {
+                // OPEN -> Zoom IN
+                const mag = (Math.abs(gestureState.smoothedZoom) - zoomDeadzone) / (1 - zoomDeadzone);
+                const distToMin = camState.radius - CONFIG.camMinDist;
+                targetVelocity = -(mag * distToMin * CONFIG.zoomInFactor);
+                zoomVelocity = zoomVelocity * 0.8 + targetVelocity * 0.2;
+                statusMsg = "ZOOM IN (Open)";
+                statusColor = "#44ff44";
+            } 
+            else {
+                // Neutral Zone
+                zoomVelocity *= 0.9; 
+                statusMsg = "Orbiting (Neutral)";
+                statusColor = "#aaccff";
+            }
+
+            camState.radius += zoomVelocity;
+
+            if (camState.radius < CONFIG.camMinDist) {
+                camState.radius = CONFIG.camMinDist;
+                zoomVelocity = 0;
+            }
+            if (camState.radius > CONFIG.camMaxDist) {
+                camState.radius = CONFIG.camMaxDist;
+                zoomVelocity = 0;
+            }
+
+            statusPill.innerText = statusMsg;
+            statusPill.style.color = statusColor;
+            statusPill.style.borderColor = statusColor;
+
+            updateCameraPosition();
+        }
+
+        function updateCameraPosition() {
+            const x = camState.radius * Math.sin(camState.phi) * Math.cos(camState.theta);
+            const y = camState.radius * Math.cos(camState.phi);
+            const z = camState.radius * Math.sin(camState.phi) * Math.sin(camState.theta);
+            
+            camera.position.set(x, y, z);
+            camera.lookAt(0, 0, 0);
+        }
+
+        function animateParticles() {
+            // Rotation of the entire star system points object
+            if(starFieldPoints) {
+                starFieldPoints.rotation.y += 0.0005;
+                if (currentFormation === 'flower' || currentFormation === 'heart') {
+                     // Slower, subtler wobble for massive star fields
+                    starFieldPoints.rotation.z = Math.sin(Date.now() * 0.0002) * 0.02;
+                } else {
+                    starFieldPoints.rotation.z = 0;
+                }
+            }
+            if(ringPoints && ringPoints.visible) {
+                ringPoints.rotation.z += 0.001;
+                ringPoints.rotation.x = Math.sin(Date.now() * 0.0005) * 0.1;
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Start App
+        init();
+
+    </script>
+</body>
+</html>
